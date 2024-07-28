@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from torch.utils.data import DataLoader
 
 import random
@@ -9,8 +10,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 #%%
-from dataset import CustomDataset
-from model import Model
+from distvae_tabular.dataset import CustomDataset
+from distvae_tabular.model import Model
 #%%
 def continuous_CRPS(model, x_batch, alpha_tilde_list, gamma, beta, j):
     term = (1 - model.delta.pow(3)) / 3 - model.delta - torch.maximum(alpha_tilde_list[j], model.delta).pow(2)
