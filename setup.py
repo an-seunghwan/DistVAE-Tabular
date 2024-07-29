@@ -5,7 +5,7 @@ with open('README.md', encoding='utf-8') as f:
 
 setup(
     name='distvae_tabular',
-    version='0.0.6',
+    version='0.0.7',
     author='Seunghwan An',
     author_email='dpeltms79@gmail.com',
     description='DistVAE Implementation Package for Synthetic Data Generation',
