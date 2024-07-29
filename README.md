@@ -4,6 +4,8 @@
 
 We utilize the continuous ranked probability score (CRPS), a strictly proper scoring rule, as the reconstruction loss while preserving the mathematical derivation of the lower bound of the data log-likelihood. Additionally, we introduce a synthetic data generation mechanism that effectively preserves differential privacy.
 
+> For a detailed method explanations, check our paper! [(link)](https://openreview.net/pdf?id=GxL6PrmEUw)
+
 ### 1. Installation
 Install using pip:
 ```
