@@ -1,15 +1,13 @@
 #%%
 import pandas as pd
 import numpy as np
-from collections import namedtuple
 from tqdm import tqdm
+from sklearn.preprocessing import StandardScaler
 
 import torch
 from torch.utils.data import Dataset
 
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-
+from collections import namedtuple
 EncodedInfo = namedtuple(
     'EncodedInfo', 
     ['num_features', 'num_continuous_features', 'num_categories'])
@@ -17,20 +15,34 @@ EncodedInfo = namedtuple(
 class CustomDataset(Dataset):
     def __init__(
         self, 
-        data,
+        data: pd.DataFrame,
         continuous_features=[], 
         categorical_features=[], 
         integer_features=[], 
-        ClfTarget=None,
         ):
         
-        if len(continuous_features) == 0:
-            continuous_features = data.columns
+        if not isinstance(data, pd.DataFrame):
+            raise TypeError("Input must be a pandas DataFrame.")
+        
+        if len(set(continuous_features) - set(data.columns)) > 0:
+            raise ValueError("There exist invalid continuous column names.")
+        
+        if len(set(categorical_features) - set(data.columns)) > 0:
+            raise ValueError("There exist invalid categorical column names.")
+        
+        if len(set(integer_features) - set(data.columns)) > 0:
+            raise ValueError("There exist invalid integer column names.")
+        
+        if (len(continuous_features) == 0) and (len(categorical_features) == 0):
+            continuous_features = list(data.columns)
+        elif len(continuous_features) == 0:
+            continuous_features = [x for x in data.columns if x not in categorical_features]
+        else:
+            categorical_features = [x for x in data.columns if x not in continuous_features]
         
         self.continuous_features = continuous_features
         self.categorical_features = categorical_features
         self.integer_features = integer_features
-        self.ClfTarget = ClfTarget
         
         self.features = self.continuous_features + self.categorical_features
         self.col_2_idx = {col : i for i, col in enumerate(data[self.features].columns.to_list())}
@@ -41,7 +53,7 @@ class CustomDataset(Dataset):
             lambda col: col.astype('category').cat.codes)
         self.num_categories = data[self.categorical_features].nunique(axis=0).to_list()
 
-        data = data[self.features] # select features for training
+        data = data[self.features] 
         data = pd.get_dummies(
             data, columns=self.categorical_features, prefix_sep="###"
         )
@@ -62,13 +74,14 @@ class CustomDataset(Dataset):
         self.EncodedInfo = EncodedInfo(
             len(self.features), self.num_continuous_features, self.num_categories)
         
-        raw_undummified = self.undummify(
-            self.raw_data[[x for x in self.raw_data.columns if x not in self.continuous_features]]
-        )
-        self.raw_data = pd.concat(
-            [self.raw_data[self.continuous_features], raw_undummified],
-            axis=1
-        )
+        if len(self.categorical_features) > 0:
+            raw_undummified = self.undummify(
+                self.raw_data[[x for x in self.raw_data.columns if x not in self.continuous_features]]
+            )
+            self.raw_data = pd.concat(
+                [self.raw_data[self.continuous_features], raw_undummified],
+                axis=1
+            )
         
     def transform_continuous(self, data, col):
         feature = data[[col]].to_numpy().astype(float)

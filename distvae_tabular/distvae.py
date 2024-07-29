@@ -1,19 +1,17 @@
 #%%
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
 from torch.utils.data import DataLoader
 
 import random
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-#%%
+
 from distvae_tabular.dataset import CustomDataset
 from distvae_tabular.model import Model
 #%%
-def continuous_CRPS(model, x_batch, alpha_tilde_list, gamma, beta, j):
+def CRPS(model, x_batch, alpha_tilde_list, gamma, beta, j):
     term = (1 - model.delta.pow(3)) / 3 - model.delta - torch.maximum(alpha_tilde_list[j], model.delta).pow(2)
     term += 2 * torch.maximum(alpha_tilde_list[j], model.delta) * model.delta
     crps = (2 * alpha_tilde_list[j]) * x_batch[:, [j]]
@@ -25,26 +23,47 @@ def continuous_CRPS(model, x_batch, alpha_tilde_list, gamma, beta, j):
 class DistVAE(nn.Module):
     def __init__(
         self, 
-        data,
+        data: pd.DataFrame,
         continuous_features=[], 
         categorical_features=[], 
         integer_features=[], 
-        ClfTarget=None,
         
-        seed: int = 0, # seed for repeatable resultsseed for repeatable results
-        latent_dim: int = 8, # the latent dimension size
-        beta: float = 0.1, # scale parameter of asymmetric Laplace distribution
-        hidden_dim: int = 128, # hidden layer dimension
+        seed: int = 0,
+        latent_dim: int = 8,
+        beta: float = 0.1,
+        hidden_dim: int = 128,
         
-        epochs: int = 1000, # the number of epochs
-        batch_size: int = 256, # batch size
-        lr: float = 0.001, # learning rate
+        epochs: int = 1000,
+        batch_size: int = 256,
+        lr: float = 0.001,
         
-        threshold: float = 1e-8, # threshold for clipping alpha_tilde
-        step: float = 0.1, # interval size of quantile levels (if step = 0.1, then M = 10)
-        lambda_: float = 0., # hyper-parameter for privacy control
+        threshold: float = 1e-8,
+        step: float = 0.1,
         device="cpu"
     ):
+        """
+        Args:
+            data (pd.DataFrame): the observed tabular dataset
+            continuous_features (list, optional): the list of continuous columns of data. Defaults to [].
+                - If it is [], then all columns of data will be treated as continuous column
+            categorical_features (list, optional): the list of categorical columns of data. Defaults to [].
+                - If it is [], all other columns except continuous columns will be categorical column.
+            integer_features (list, optional): the list of integer-type columns of data. Defaults to [].
+            
+            seed (int, optional): seed for repeatable results. Defaults to 0.
+            latent_dim (int, optional): the latent dimension size. Defaults to 8.
+            beta (float, optional): scale parameter of asymmetric Laplace distribution. Defaults to 0.1.
+            hidden_dim (int, optional): the number of nodes in MLP. Defaults to 128.
+            
+            epochs (int, optional): the number of epochs. Defaults to 1000.
+            batch_size (int, optional): the batch size. Defaults to 256.
+            lr (float, optional): learning rate. Defaults to 0.001.
+            
+            threshold (float, optional): threshold for clipping alpha_tild (numerical stability). Defaults to 1e-8.
+            step (float, optional): interval size of quantile levels. Defaults to 0.1.
+            device (str, optional): device. Defaults to "cpu".
+        """
+        
         super(DistVAE, self).__init__()
         
         self.seed = seed
@@ -56,7 +75,6 @@ class DistVAE(nn.Module):
         self.lr = lr
         self.threshold = threshold
         self.step = step
-        self.lambda_ = lambda_
         self.device = device
         
         self.dataset = CustomDataset(
@@ -64,13 +82,11 @@ class DistVAE(nn.Module):
             continuous_features=continuous_features,
             categorical_features=categorical_features,
             integer_features=integer_features,
-            ClfTarget=ClfTarget
         )
         self.dataloader = DataLoader(
             self.dataset, 
             batch_size=self.batch_size)
         self.EncodedInfo = self.dataset.EncodedInfo
-        
         self.cont_dim = self.EncodedInfo.num_continuous_features
         self.disc_dim = sum(self.EncodedInfo.num_categories)
         self.p = self.cont_dim + self.disc_dim
@@ -109,9 +125,8 @@ class DistVAE(nn.Module):
                 'loss': [], 
                 'recon': [],
                 'KL': [],
+                'activated': [],
             }
-            # for debugging
-            logs['activated'] = []
             
             for x_batch in tqdm(iter(self.dataloader), desc="inner loop"):
                 x_batch = x_batch.to(self.device)
@@ -122,11 +137,13 @@ class DistVAE(nn.Module):
                 
                 loss_ = []
                 
-                """1. Reconstruction loss: CRPS"""
+                """1. Reconstruction loss"""
+                ### continuous: CRPS
                 alpha_tilde_list = self.model.quantile_inverse(x_batch, gamma, beta)
                 recon = 0
                 for j in range(self.model.EncodedInfo.num_continuous_features):
-                    recon += continuous_CRPS(self.model, x_batch, alpha_tilde_list, gamma, beta, j)
+                    recon += CRPS(self.model, x_batch, alpha_tilde_list, gamma, beta, j)
+                ### categorical: classification loss
                 st = 0
                 cont_dim = self.model.EncodedInfo.num_continuous_features
                 for j, dim in enumerate(self.model.EncodedInfo.num_categories):
@@ -168,7 +185,22 @@ class DistVAE(nn.Module):
             
         return
     
-    def generate_data(self, n, seed=0):
+    def generate_data(
+        self, 
+        n: int,
+        lambda_: float = 0.,
+        seed: int = 0, 
+    ):
+        """
+        Args:
+            n (int): the number of synthetic samples to generate
+            lambda_ (float, optional): the hyper-parameter for privacy control (it must be non-negative). Defaults to 0.
+            seed (int, optional): seed for repeatable results. Defaults to 0.
+        """
+        
+        if lambda_ < 0:
+            ValueError("lambda must be non-negative!")
+        
         self.set_random_seed(seed)
         batch_size = 1024
         data = []
@@ -187,18 +219,16 @@ class DistVAE(nn.Module):
                 for j in range(self.EncodedInfo.num_continuous_features):
                     alpha = torch.rand(batch_size, 1).to(self.device)
                     
-                    if self.lambda_ > 0:
+                    if lambda_ > 0:
                         ### The DistVAE Mechanism
                         u = torch.rand(batch_size, 1).to(self.device)
-                        noise1 = self.lambda_ / (1. - alpha) * (u / alpha).log()
-                        noise2 = self.lambda_ / (- alpha) * ((1. - u) / (1. - alpha)).log()
+                        noise1 = lambda_ / (1. - alpha) * (u / alpha).log()
+                        noise2 = lambda_ / (- alpha) * ((1. - u) / (1. - alpha)).log()
                         binary = (u <= alpha).to(float)
                         noise = noise1 * binary + noise2 * (1. - binary)
                         samples.append(self.model.quantile_function(alpha, gamma, beta, j) + noise) ### inverse transform sampling
-                    elif self.lambda_ == 0:
-                        samples.append(self.model.quantile_function(alpha, gamma, beta, j)) ### inverse transform sampling
                     else:
-                        ValueError("lambda must be non-negative!")
+                        samples.append(self.model.quantile_function(alpha, gamma, beta, j)) ### inverse transform sampling
                 # categorical
                 st = 0
                 for j, dim in enumerate(self.EncodedInfo.num_categories):
@@ -217,11 +247,11 @@ class DistVAE(nn.Module):
             data.cpu().numpy(), 
             columns=self.dataset.features)
         
-        """un-standardization of synthetic data"""
+        # un-standardization of synthetic data
         for col, scaler in self.dataset.scalers.items():
             data[[col]] = scaler.inverse_transform(data[[col]])
         
-        """post-process"""
+        # post-process
         data[self.dataset.categorical_features] = data[self.dataset.categorical_features].astype(int)
         data[self.dataset.integer_features] = data[self.dataset.integer_features].round(0).astype(int)
         
