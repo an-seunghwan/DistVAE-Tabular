@@ -18,11 +18,11 @@ class Model(nn.Module):
         beta: float = 0.1, # scale parameter of asymmetric Laplace distribution
         hidden_dim: int = 128, # hidden layer dimension
         
-        epochs: int = 1000, # the number of epochs
-        batch_size: int = 256, # batch size
+        epochs: int = 500, # the number of epochs
+        batch_size: int = 512, # batch size
         lr: float = 0.001, # learning rate
         
-        threshold: float = 1e-8, # threshold for clipping alpha_tilde
+        threshold: float = 1e-6, # threshold for clipping alpha_tilde
         step: float = 0.1, # interval size of quantile levels (if step = 0.1, then M = 10)
         
         device="cpu"
@@ -47,9 +47,9 @@ class Model(nn.Module):
         """encoder"""
         self.encoder = nn.Sequential(
             nn.Linear(self.p, self.hidden_dim),
-            nn.LeakyReLU(),
+            nn.ReLU(),
             nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.LeakyReLU(),
+            nn.ReLU(),
             nn.Linear(self.hidden_dim, self.latent_dim * 2),
         ).to(device)
         
@@ -58,9 +58,9 @@ class Model(nn.Module):
         self.M = self.delta.size(1) - 1
         self.decoder = nn.Sequential(
             nn.Linear(self.latent_dim, self.hidden_dim),
-            nn.LeakyReLU(),
+            nn.ReLU(),
             nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.LeakyReLU(),
+            nn.ReLU(),
             nn.Linear(self.hidden_dim, self.cont_dim * (1 + (self.M + 1)) + self.disc_dim),
         ).to(device)
     
@@ -87,7 +87,7 @@ class Model(nn.Module):
         gamma = [h_[:, [0]] for h_ in h]
         beta = [torch.cat([
             torch.zeros_like(gamma[0]),
-            nn.ReLU()(h_[:, 1:]) # positive constraint
+            nn.Softplus()(h_[:, 1:]) # positive constraint
         ], dim=1) for h_ in h]
         beta = [b[:, 1:] - b[:, :-1] for b in beta]
         return gamma, beta, logit
@@ -99,29 +99,25 @@ class Model(nn.Module):
             torch.zeros(()).to(self.device)
         )).sum(dim=1, keepdims=True)
         
-    def _quantile_inverse(self, x, gamma, beta, j):
-        delta_ = self.delta.unsqueeze(2).repeat(1, 1, self.M + 1)
+    def quantile_inverse(self, x, gamma, beta):
+        C = self.cont_dim
+        delta_ = self.delta.unsqueeze(2).repeat(1, 1, self.M + 1) # [1, M+1, M+1]
         delta_ = torch.where(
             delta_ - self.delta > 0,
             delta_ - self.delta,
-            torch.zeros(()).to(self.device))
-        mask = gamma[j] + (beta[j] * delta_.unsqueeze(2)).sum(dim=-1).squeeze(0).t()
+            torch.zeros(()).to(self.device)) # [1, M+1, M+1]
+        
+        beta_delta = (torch.stack(beta, dim=2) * delta_.unsqueeze(2).unsqueeze(4)).sum(dim=3).squeeze(0)
+        mask = torch.cat(gamma, dim=1).unsqueeze(1) + beta_delta.permute([1, 0, 2])
         mask = torch.where(
-            mask <= x, 
+            mask <= x[:, :C].unsqueeze(1), 
             mask, 
             torch.zeros(()).to(self.device)).type(torch.bool).type(torch.float)
-        alpha_tilde = x - gamma[j]
-        alpha_tilde += (mask * beta[j] * self.delta).sum(dim=1, keepdims=True)
-        alpha_tilde /= (mask * beta[j]).sum(dim=1, keepdims=True) + self.threshold
-        alpha_tilde = torch.clip(alpha_tilde, self.threshold, 1) # numerical stability
+        alpha_tilde = x[:, :C] - torch.cat(gamma, dim=1)
+        alpha_tilde += (mask * torch.stack(beta, dim=2) * self.delta.unsqueeze(2)).sum(dim=1)
+        alpha_tilde /= (mask * torch.stack(beta, dim=2)).sum(dim=1) + self.threshold # numerical stability
+        alpha_tilde = torch.clip(alpha_tilde, 0, 1) # numerical stability
         return alpha_tilde
-
-    def quantile_inverse(self, x, gamma, beta):
-        alpha_tilde_list = []
-        for j in range(self.cont_dim):
-            alpha_tilde = self._quantile_inverse(x[:, [j]], gamma, beta, j)
-            alpha_tilde_list.append(alpha_tilde)
-        return alpha_tilde_list
     
     def forward(self, input):
         z, mean, logvar = self.encode(input)

@@ -11,14 +11,19 @@ from tqdm import tqdm
 from distvae_tabular.dataset import CustomDataset
 from distvae_tabular.model import Model
 #%%
-def CRPS(model, x_batch, alpha_tilde_list, gamma, beta, j):
-    term = (1 - model.delta.pow(3)) / 3 - model.delta - torch.maximum(alpha_tilde_list[j], model.delta).pow(2)
-    term += 2 * torch.maximum(alpha_tilde_list[j], model.delta) * model.delta
-    crps = (2 * alpha_tilde_list[j]) * x_batch[:, [j]]
-    crps += (1 - 2 * alpha_tilde_list[j]) * gamma[j]
-    crps += (beta[j] * term).sum(dim=1, keepdims=True)
+### broadcasting version
+def CRPS_loss(model, x_batch, alpha_tilde, gamma, beta):
+    C = model.cont_dim
+    delta = model.delta.unsqueeze(-1) # [1, M+1, 1]
+    
+    term = (1 - delta.pow(3)) / 3 - delta - torch.maximum(alpha_tilde.unsqueeze(1), delta).pow(2) # [batch, M+1, p]
+    term += 2 * torch.maximum(alpha_tilde.unsqueeze(1), delta) * delta # [batch, M+1, p]
+    
+    crps = (2 * alpha_tilde) * x_batch[:, :C] # [batch, p]
+    crps += (1 - 2 * alpha_tilde) * torch.cat(gamma, dim=1) # [batch, p]
+    crps += (torch.stack(beta, dim=2) * term).sum(dim=1) # [batch, p]
     crps *= 0.5
-    return crps.mean()
+    return crps.mean(dim=0).sum()
 #%%
 class DistVAE(nn.Module):
     def __init__(
@@ -33,11 +38,12 @@ class DistVAE(nn.Module):
         beta: float = 0.1,
         hidden_dim: int = 128,
         
-        epochs: int = 1000,
-        batch_size: int = 256,
+        epochs: int = 500,
+        batch_size: int = 512,
         lr: float = 0.001,
+        weight_decay: float = 1e-5,
         
-        threshold: float = 1e-8,
+        threshold: float = 1e-6,
         step: float = 0.1,
         device="cpu"
     ):
@@ -55,11 +61,12 @@ class DistVAE(nn.Module):
             beta (float, optional): scale parameter of asymmetric Laplace distribution. Defaults to 0.1.
             hidden_dim (int, optional): the number of nodes in MLP. Defaults to 128.
             
-            epochs (int, optional): the number of epochs. Defaults to 1000.
-            batch_size (int, optional): the batch size. Defaults to 256.
+            epochs (int, optional): the number of epochs. Defaults to 500.
+            batch_size (int, optional): the batch size. Defaults to 512.
             lr (float, optional): learning rate. Defaults to 0.001.
+            weight_decay (float, optional): weight decay parameter for AdamW optimizer. Defaults to 1e-5.
             
-            threshold (float, optional): threshold for clipping alpha_tild (numerical stability). Defaults to 1e-8.
+            threshold (float, optional): threshold for clipping alpha_tild (numerical stability). Defaults to 1e-6.
             step (float, optional): interval size of quantile levels. Defaults to 0.1.
             device (str, optional): device. Defaults to "cpu".
         """
@@ -73,6 +80,7 @@ class DistVAE(nn.Module):
         self.epochs = epochs
         self.batch_size = batch_size
         self.lr = lr
+        self.weight_decay = weight_decay
         self.threshold = threshold
         self.step = step
         self.device = device
@@ -103,9 +111,10 @@ class DistVAE(nn.Module):
             step=self.step, # interval size of quantile levels (if step = 0.1, then M = 10)
             device=self.device
         )
-        self.optimizer = torch.optim.Adam(
+        self.optimizer = torch.optim.AdamW(
             self.model.parameters(), 
-            lr=self.lr)
+            lr=self.lr,
+            weight_decay=self.weight_decay)
         
     def set_random_seed(self, seed):
         torch.manual_seed(seed)
@@ -139,10 +148,8 @@ class DistVAE(nn.Module):
                 
                 """1. Reconstruction loss"""
                 ### continuous: CRPS
-                alpha_tilde_list = self.model.quantile_inverse(x_batch, gamma, beta)
-                recon = 0
-                for j in range(self.model.EncodedInfo.num_continuous_features):
-                    recon += CRPS(self.model, x_batch, alpha_tilde_list, gamma, beta, j)
+                alpha_tilde = self.model.quantile_inverse(x_batch, gamma, beta)
+                recon = CRPS_loss(self.model, x_batch, alpha_tilde, gamma, beta)
                 ### categorical: classification loss
                 st = 0
                 cont_dim = self.model.EncodedInfo.num_continuous_features
