@@ -11,7 +11,6 @@ from tqdm import tqdm
 from distvae_tabular.dataset import CustomDataset
 from distvae_tabular.model import Model
 #%%
-### broadcasting version
 def CRPS_loss(model, x_batch, alpha_tilde, gamma, beta):
     C = model.EncodedInfo.num_continuous_features
     delta = model.delta.unsqueeze(-1) # [1, M+1, 1]
@@ -24,16 +23,6 @@ def CRPS_loss(model, x_batch, alpha_tilde, gamma, beta):
     crps += (torch.stack(beta, dim=2) * term).sum(dim=1) # [batch, p]
     crps *= 0.5
     return crps.mean(dim=0).sum()
-
-### marginal version
-# def CRPS_loss(model, x_batch, alpha_tilde_list, gamma, beta, j):
-#     term = (1 - model.delta.pow(3)) / 3 - model.delta - torch.maximum(alpha_tilde_list[j], model.delta).pow(2)
-#     term += 2 * torch.maximum(alpha_tilde_list[j], model.delta) * model.delta
-#     crps = (2 * alpha_tilde_list[j]) * x_batch[:, [j]]
-#     crps += (1 - 2 * alpha_tilde_list[j]) * gamma[j]
-#     crps += (beta[j] * term).sum(dim=1, keepdims=True)
-#     crps *= 0.5
-#     return crps.mean()
 #%%
 class DistVAE(nn.Module):
     def __init__(
