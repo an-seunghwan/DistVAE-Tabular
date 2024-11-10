@@ -58,22 +58,22 @@ integer_features = [
 from distvae_tabular import distvae
 
 distvae = distvae.DistVAE(
-    data=data,
-    continuous_features=continuous_features,
-    categorical_features=categorical_features,
-    integer_features=integer_features,
+    data=data, # the observed tabular dataset
+    continuous_features=continuous_features, # the list of continuous columns of data
+    categorical_features=categorical_features, # the list of categorical columns of data
+    integer_features=integer_features, # the list of integer-type columns of data
     
-    seed=42,
-    latent_dim=4,
-    beta=0.1,
-    hidden_dim=128,
+    seed=42, # seed for repeatable results
+    latent_dim=4, # the latent dimension size
+    beta=0.1, # scale parameter of asymmetric Laplace distribution
+    hidden_dim=128, # the number of nodes in MLP
     
-    epochs=5, # for quick checking 
-    batch_size=256,
-    lr=0.001,
+    epochs=5, # the number of epochs (for quick checking)
+    batch_size=256, # the batch size
+    lr=0.001, # learning rate
     
-    step=0.1,
-    threshold=1e-8,
+    step=0.1, # interval size between knots
+    threshold=1e-8, # threshold for clipping alpha_tild (numerical stability)
     device="cpu"
 )
 

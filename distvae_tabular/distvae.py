@@ -74,8 +74,8 @@ class DistVAE(nn.Module):
             batch_size (int, optional): the batch size. Defaults to 256.
             lr (float, optional): learning rate. Defaults to 0.001.
             
+            step (float, optional): interval size between knots. Defaults to 0.1.
             threshold (float, optional): threshold for clipping alpha_tild (numerical stability). Defaults to 1e-8.
-            step (float, optional): interval size of quantile levels. Defaults to 0.1.
             device (str, optional): device. Defaults to "cpu".
         """
         
