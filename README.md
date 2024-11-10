@@ -62,7 +62,19 @@ distvae = distvae.DistVAE(
     continuous_features=continuous_features,
     categorical_features=categorical_features,
     integer_features=integer_features,
-    epochs=5 # for quick checking (default is 1000)
+    
+    seed=42,
+    latent_dim=4,
+    beta=0.1,
+    hidden_dim=128,
+    
+    epochs=5, # for quick checking 
+    batch_size=256,
+    lr=0.001,
+    
+    step=0.1,
+    threshold=1e-8,
+    device="cpu"
 )
 
 """training"""
