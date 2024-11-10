@@ -8,7 +8,7 @@ with open('requirements.txt', encoding='utf-8') as f:
 
 setup(
     name='distvae_tabular',
-    version='0.1.6',
+    version='0.1.7',
     author='Seunghwan An',
     author_email='dpeltms79@gmail.com',
     description='Package for Synthetic Data Generation using Distributional Learninig of VAE',
