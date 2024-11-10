@@ -1,6 +1,7 @@
 #%%
 import torch
 import torch.nn as nn
+
 from collections import namedtuple
 #%%
 class Model(nn.Module):
@@ -46,8 +47,8 @@ class Model(nn.Module):
         ).to(device)
         
         """decoder"""
-        self.delta = torch.arange(0, 1 + self.step, step=self.step).view(1, -1).to(device)
-        self.M = self.delta.size(1) - 1
+        self.delta = torch.arange(0, 1 + self.step, step=self.step).view(1, -1).to(device) # knot points
+        self.M = self.delta.size(1) - 1 # the number of knots
         self.decoder = nn.Sequential(
             nn.Linear(self.latent_dim, self.hidden_dim),
             nn.ReLU(),
@@ -81,7 +82,7 @@ class Model(nn.Module):
             torch.zeros_like(gamma[0]),
             nn.Softplus()(h_[:, 1:]) # positive constraint
         ], dim=1) for h_ in h]
-        beta = [b[:, 1:] - b[:, :-1] for b in beta]
+        beta = [b[:, 1:] - b[:, :-1] for b in beta] # monotone increasing constraint
         return gamma, beta, logit
     
     def quantile_function(self, alpha, gamma, beta, j):

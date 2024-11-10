@@ -163,7 +163,7 @@ class DistVAE(nn.Module):
                 ### categorical: classification loss
                 st = 0
                 cont_dim = self.model.EncodedInfo.num_continuous_features
-                for j, dim in enumerate(self.model.EncodedInfo.num_categories):
+                for dim in self.model.EncodedInfo.num_categories:
                     ed = st + dim
                     _, targets = x_batch[:, cont_dim + st : cont_dim + ed].max(dim=1)
                     out = logit[:, st : ed]
@@ -184,8 +184,10 @@ class DistVAE(nn.Module):
                 loss = recon + self.beta * KL 
                 loss_.append(('loss', loss))
                 
-                ### active latent subspace
-                # An, S., & Jeon, J. J. (2024). Customization of latent space in semi-supervised Variational AutoEncoder. Pattern Recognition Letters, 177, 54-60.
+                ### check the size of active latent subspace
+                # An, S., & Jeon, J. J. (2024). 
+                # Customization of latent space in semi-supervised Variational AutoEncoder. 
+                # Pattern Recognition Letters, 177, 54-60.
                 var_ = torch.exp(logvar) < 0.1
                 loss_.append(('activated', var_.float().mean()))
                 
