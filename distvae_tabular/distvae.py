@@ -134,7 +134,7 @@ class DistVAE(nn.Module):
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), 
             lr=self.lr)
-        return 
+        return
     
     def train(self):
         self.set_random_seed(self.seed)
