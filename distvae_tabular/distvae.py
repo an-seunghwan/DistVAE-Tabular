@@ -11,14 +11,29 @@ from tqdm import tqdm
 from distvae_tabular.dataset import CustomDataset
 from distvae_tabular.model import Model
 #%%
-def CRPS(model, x_batch, alpha_tilde_list, gamma, beta, j):
-    term = (1 - model.delta.pow(3)) / 3 - model.delta - torch.maximum(alpha_tilde_list[j], model.delta).pow(2)
-    term += 2 * torch.maximum(alpha_tilde_list[j], model.delta) * model.delta
-    crps = (2 * alpha_tilde_list[j]) * x_batch[:, [j]]
-    crps += (1 - 2 * alpha_tilde_list[j]) * gamma[j]
-    crps += (beta[j] * term).sum(dim=1, keepdims=True)
+### broadcasting version
+def CRPS_loss(model, x_batch, alpha_tilde, gamma, beta):
+    C = model.EncodedInfo.num_continuous_features
+    delta = model.delta.unsqueeze(-1) # [1, M+1, 1]
+    
+    term = (1 - delta.pow(3)) / 3 - delta - torch.maximum(alpha_tilde.unsqueeze(1), delta).pow(2) # [batch, M+1, p]
+    term += 2 * torch.maximum(alpha_tilde.unsqueeze(1), delta) * delta # [batch, M+1, p]
+    
+    crps = (2 * alpha_tilde) * x_batch[:, :C] # [batch, p]
+    crps += (1 - 2 * alpha_tilde) * torch.cat(gamma, dim=1) # [batch, p]
+    crps += (torch.stack(beta, dim=2) * term).sum(dim=1) # [batch, p]
     crps *= 0.5
-    return crps.mean()
+    return crps.mean(dim=0).sum()
+
+### marginal version
+# def CRPS_loss(model, x_batch, alpha_tilde_list, gamma, beta, j):
+#     term = (1 - model.delta.pow(3)) / 3 - model.delta - torch.maximum(alpha_tilde_list[j], model.delta).pow(2)
+#     term += 2 * torch.maximum(alpha_tilde_list[j], model.delta) * model.delta
+#     crps = (2 * alpha_tilde_list[j]) * x_batch[:, [j]]
+#     crps += (1 - 2 * alpha_tilde_list[j]) * gamma[j]
+#     crps += (beta[j] * term).sum(dim=1, keepdims=True)
+#     crps *= 0.5
+#     return crps.mean()
 #%%
 class DistVAE(nn.Module):
     def __init__(
@@ -33,12 +48,12 @@ class DistVAE(nn.Module):
         beta: float = 0.1,
         hidden_dim: int = 128,
         
-        epochs: int = 1000,
+        epochs: int = 500,
         batch_size: int = 256,
         lr: float = 0.001,
         
-        threshold: float = 1e-8,
         step: float = 0.1,
+        threshold: float = 1e-8,
         device="cpu"
     ):
         """
@@ -84,13 +99,26 @@ class DistVAE(nn.Module):
             integer_features=integer_features,
         )
         self.dataloader = DataLoader(
-            self.dataset, 
-            batch_size=self.batch_size)
+            self.dataset, batch_size=self.batch_size, shuffle=True)
         self.EncodedInfo = self.dataset.EncodedInfo
         self.cont_dim = self.EncodedInfo.num_continuous_features
         self.disc_dim = sum(self.EncodedInfo.num_categories)
         self.p = self.cont_dim + self.disc_dim
         
+        self.set_random_seed(self.seed)
+        self.initialize()
+        
+    def set_random_seed(self, seed):
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        np.random.seed(seed)
+        random.seed(seed)       
+        return 
+    
+    def initialize(self):
         self.model = Model(
             EncodedInfo=self.EncodedInfo, # information of the dataset
             latent_dim=self.latent_dim, # the latent dimension size
@@ -106,21 +134,12 @@ class DistVAE(nn.Module):
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), 
             lr=self.lr)
-        
-    def set_random_seed(self, seed):
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        np.random.seed(seed)
-        random.seed(seed)       
         return 
     
     def train(self):
         self.set_random_seed(self.seed)
         
-        for epoch in range(self.epochs):
+        for epoch in tqdm(range(self.epochs), desc="Training..."):
             logs = {
                 'loss': [], 
                 'recon': [],
@@ -128,7 +147,7 @@ class DistVAE(nn.Module):
                 'activated': [],
             }
             
-            for x_batch in tqdm(iter(self.dataloader), desc="inner loop"):
+            for x_batch in iter(self.dataloader):
                 x_batch = x_batch.to(self.device)
                 
                 self.optimizer.zero_grad()
@@ -139,10 +158,8 @@ class DistVAE(nn.Module):
                 
                 """1. Reconstruction loss"""
                 ### continuous: CRPS
-                alpha_tilde_list = self.model.quantile_inverse(x_batch, gamma, beta)
-                recon = 0
-                for j in range(self.model.EncodedInfo.num_continuous_features):
-                    recon += CRPS(self.model, x_batch, alpha_tilde_list, gamma, beta, j)
+                alpha_tilde = self.model.quantile_inverse(x_batch, gamma, beta)
+                recon = CRPS_loss(self.model, x_batch, alpha_tilde, gamma, beta)
                 ### categorical: classification loss
                 st = 0
                 cont_dim = self.model.EncodedInfo.num_continuous_features
@@ -167,13 +184,14 @@ class DistVAE(nn.Module):
                 loss = recon + self.beta * KL 
                 loss_.append(('loss', loss))
                 
+                ### active latent subspace
+                # An, S., & Jeon, J. J. (2024). Customization of latent space in semi-supervised Variational AutoEncoder. Pattern Recognition Letters, 177, 54-60.
                 var_ = torch.exp(logvar) < 0.1
                 loss_.append(('activated', var_.float().mean()))
                 
                 loss.backward()
                 self.optimizer.step()
                     
-                """accumulate losses"""
                 for x, y in loss_:
                     logs[x] = logs.get(x) + [y.item()]
             
@@ -226,9 +244,9 @@ class DistVAE(nn.Module):
                         noise2 = lambda_ / (- alpha) * ((1. - u) / (1. - alpha)).log()
                         binary = (u <= alpha).to(float)
                         noise = noise1 * binary + noise2 * (1. - binary)
-                        samples.append(self.model.quantile_function(alpha, gamma, beta, j) + noise) ### inverse transform sampling
                     else:
-                        samples.append(self.model.quantile_function(alpha, gamma, beta, j)) ### inverse transform sampling
+                        noise = 0.
+                    samples.append(self.model.quantile_function(alpha, gamma, beta, j) + noise) ### inverse transform sampling
                 # categorical
                 st = 0
                 for j, dim in enumerate(self.EncodedInfo.num_categories):

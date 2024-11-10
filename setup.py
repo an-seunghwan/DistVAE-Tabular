@@ -11,15 +11,13 @@ setup(
     version='0.1.0',
     author='Seunghwan An',
     author_email='dpeltms79@gmail.com',
-    description='DistVAE Implementation Package for Synthetic Data Generation',
+    description='Package for Synthetic Data Generation using Distributional Learninig of VAE',
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://github.com/an-seunghwan/DistVAE-Tabular',
     packages=find_packages(),
     classifiers=[
         'Programming Language :: Python :: 3',
-        'License :: OSI Approved :: MIT License',
-        'Operating System :: OS Independent',
     ],
     python_requires='>=3.11',
     install_requires=install_requires
