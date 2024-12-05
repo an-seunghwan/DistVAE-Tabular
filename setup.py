@@ -5,7 +5,7 @@ with open('README.md', encoding='utf-8') as f:
     
 setup(
     name='distvae_tabular',
-    version='0.1.7',
+    version='0.2.0',
     author='Seunghwan An',
     author_email='dpeltms79@gmail.com',
     description='Package for Synthetic Data Generation using Distributional Learninig of VAE',
