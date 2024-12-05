@@ -8,7 +8,7 @@ setup(
     version='0.2.0',
     author='Seunghwan An',
     author_email='dpeltms79@gmail.com',
-    description='Package for Synthetic Data Generation using Distributional Learninig of VAE',
+    description='Package for Synthetic Data Generation using Distributional Learninig of VAE (DistVAE)',
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://github.com/an-seunghwan/DistVAE-Tabular',
