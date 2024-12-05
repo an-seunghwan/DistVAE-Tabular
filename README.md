@@ -1,6 +1,6 @@
 # DistVAE-Tabular
 
-**DistVAE** is a novel approach to distributional learning in the VAE framework, focusing on accurately capturing the underlying distribution of the observed dataset through a nonparametric quantile estimation. 
+**DistVAE** is a novel approach to distributional learning in the VAE framework, focusing on accurately capturing the underlying distribution of the observed dataset through a nonparametric quantile estimation.
 
 We utilize the continuous ranked probability score (CRPS), a strictly proper scoring rule, as the reconstruction loss while preserving the mathematical derivation of the lower bound of the data log-likelihood. Additionally, we introduce a synthetic data generation mechanism that effectively preserves differential privacy.
 
@@ -31,11 +31,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 """load dataset and specify column types"""
 import pandas as pd
-data = pd.read_csv('./loan.csv') 
+data = pd.read_csv('./loan.csv')
 continuous_features = [
     'Age',
     'Experience',
-    'Income', 
+    'Income',
     'CCAvg',
     'Mortgage',
 ]
@@ -50,7 +50,7 @@ categorical_features = [
 integer_features = [
     'Age',
     'Experience',
-    'Income', 
+    'Income',
     'Mortgage'
 ]
 
@@ -62,16 +62,16 @@ distvae = distvae.DistVAE(
     continuous_features=continuous_features, # the list of continuous columns of data
     categorical_features=categorical_features, # the list of categorical columns of data
     integer_features=integer_features, # the list of integer-type columns of data
-    
+
     seed=42, # seed for repeatable results
     latent_dim=4, # the latent dimension size
     beta=0.1, # scale parameter of asymmetric Laplace distribution
     hidden_dim=128, # the number of nodes in MLP
-    
+
     epochs=5, # the number of epochs (for quick checking)
     batch_size=256, # the batch size
     lr=0.001, # learning rate
-    
+
     step=0.1, # interval size between knots
     threshold=1e-8, # threshold for clipping alpha_tild (numerical stability)
     device="cpu"
