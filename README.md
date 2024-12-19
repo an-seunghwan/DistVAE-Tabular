@@ -1,4 +1,4 @@
-# DistVAE-Tabular
+# DistVAE-Tabular (accepted to NeurIPS 2023)
 
 **DistVAE** is a novel approach to distributional learning in the VAE framework, focusing on accurately capturing the underlying distribution of the observed dataset through a nonparametric quantile estimation.
 
